@@ -13,3 +13,7 @@ This is a simple system that takes advantage of the hierarchical layout of noteb
 - [ ] Add Tags and Resource directories
 - [ ] Translate links to be localized when opening notes
 - [ ] Support writing to notes
+
+## Limitations
+- This only a *thin* wrapper around the Joplin API, so mass operations (like grep) will be very slow and are not recommended.
+- This implementation uses the API for both reading and writing, a more performant implementation would be able to use the database for reading and only hit the API for a write.
