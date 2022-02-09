@@ -219,8 +219,8 @@ class JoplinBridge:
             raise pyfuse3.FUSEError(errno.ENOENT)
 
         body = await self._get_note_body(meta)
-        offset = min(len(body) - 1, offset)
-        extent = min(len(body) - 1, offset+size)
+        offset = min(len(body), offset)
+        extent = min(len(body), offset+size)
         meta.byte_size = len(body)
         return bytes(body[offset:extent], 'utf-8') # type: ignore
 
