@@ -1,11 +1,20 @@
+from api import JoplinApi
 from dataclasses import dataclass, field
 from enum import Enum
 import errno
 import pyfuse3
 import stat
 import trio
-from typing import Dict, List
+from typing import List
 import unicodedata
+import logging
+import re
+
+logging.basicConfig(format='%(levelname)s: %(message)s')
+log = logging.getLogger(__name__)
+# log.setLevel(logging.DEBUG)
+
+joplin_internal_link_regex = re.compile(r":\/([0-9a-fA-F]+)")
 
 # Type def for Inode
 Inode = int
@@ -95,7 +104,7 @@ class JoplinMeta:
         if self.type == ItemType.folder:
             return 4096
         elif self.type == ItemType.note:
-            return 1024
+            return self.byte_size if self.byte_size else 1024
         elif self.type == ItemType.resource:
             return self.byte_size
 
@@ -123,7 +132,7 @@ class JoplinBridge:
     Maps Joplin Items (identified by the Joplin Meta class) to Inodes and vice versa.
     If an item doesn not have an Inode, a valid Inode will be created.
     """
-    def __init__(self, api):
+    def __init__(self, api: JoplinApi, mount: str):
         # maps ids to inode
         self._inode_map = {}
         self._current_inode = pyfuse3.ROOT_INODE
@@ -132,6 +141,7 @@ class JoplinBridge:
                 self._current_inode: JoplinMeta(id='', type=ItemType.folder, title='rootfs', updated=0, created=0)
         }
         self.api = api
+        self._mount_substitution = f"{mount}/links/\\1"
         self._tree = {}
         self._update_cursor = None
         self.update_check_period = 3 #s
@@ -171,9 +181,9 @@ class JoplinBridge:
         return note
     async def _get_note_body(self, meta: JoplinMeta) -> str:
         data = await self.api.get(meta.url, meta.params)
-        # TODO: Localize links
-
-        return data['body']
+        # localized = re.sub(joplin_internal_link_regex, self._mount_substitution, data['body'])
+        localized = data['body']
+        return localized
 
 
     def get_inode(self, meta: JoplinMeta) -> Inode:
@@ -201,12 +211,18 @@ class JoplinBridge:
         return meta
 
     async def read(self, inode: Inode, offset: int, size: int) -> bytes:
+        """
+        Loads the body of a specific note, and returns it trimmed to the offset and size
+        """
         meta = await self.get_meta(inode)
-        if meta.type not in [ItemType.note, ItemType.resource]:
+        if meta.type != ItemType.note:
             raise pyfuse3.FUSEError(errno.ENOENT)
 
         body = await self._get_note_body(meta)
-        return bytes(body[offset:offset+size], 'utf-8') # type: ignore
+        offset = min(len(body) - 1, offset)
+        extent = min(len(body) - 1, offset+size)
+        meta.byte_size = len(body)
+        return bytes(body[offset:extent], 'utf-8') # type: ignore
 
     async def _construct_map(self):
         """
@@ -230,7 +246,7 @@ class JoplinBridge:
         Reads the latest events from the Joplin api, and updates the internal tree accordingly
         """
         while 1:
-            print("Entering Update check")
+            log.debug("Entering update check")
             root = self._map_inode[pyfuse3.ROOT_INODE]
             events = await self._get_events()
             for event in events:
@@ -242,7 +258,6 @@ class JoplinBridge:
             await trio.sleep(self.update_check_period)
 
     async def _apply_event(self, event):
-        print(event)
         if event['item_type'] not in (ItemType.note.value, ItemType.folder.value):
             return
 

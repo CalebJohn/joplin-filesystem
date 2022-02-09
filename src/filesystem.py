@@ -9,6 +9,7 @@ import os
 import pyfuse3
 import stat
 import trio
+import tempfile
 
 try:
     import faulthandler
@@ -20,7 +21,7 @@ else:
 
 logging.basicConfig(format='%(levelname)s: %(message)s')
 log = logging.getLogger(__name__)
-log.setLevel(logging.DEBUG)
+# log.setLevel(logging.DEBUG)
 
 # Type def for Inode
 Inode = int
@@ -31,7 +32,6 @@ class JoplinFS(pyfuse3.Operations):
         super().__init__()
         self._inode_map = bridge
         self.api = api
-        print(dir(self))
 
     async def _getattr(self, meta: JoplinMeta, inode: Inode):
         entry = pyfuse3.EntryAttributes()
@@ -100,7 +100,7 @@ class JoplinFS(pyfuse3.Operations):
             raise pyfuse3.FUSEError(errno.ENOENT)
         if flags & os.O_RDWR or flags & os.O_WRONLY:
             raise pyfuse3.FUSEError(errno.EACCES)
-        return pyfuse3.FileInfo(fh=inode)
+        return pyfuse3.FileInfo(fh=inode, direct_io=True, keep_cache=False, nonseekable=True)
 
     async def read(self, inode: Inode, offset: int, size: int):
         log.info(f"Reading inode {inode}")
@@ -116,7 +116,7 @@ if __name__ == "__main__":
             nursery.start_soon(bridge.check_for_update)
 
     parser = ArgumentParser()
-    parser.add_argument('mount', type=str, default=os.environ.get("JOPLINFS_MOUNT"),
+    parser.add_argument('--mount', type=str, default=os.environ.get("JOPLINFS_MOUNT"),
                         help='Mountpoint for JoplinFS')
     parser.add_argument('--token', type=str, default=os.environ.get("JOPLINFS_TOKEN"),
                         help='The Joplin webclipper token')
@@ -124,18 +124,26 @@ if __name__ == "__main__":
                         help='Enable FUSE debugging output')
     options = parser.parse_args()
 
+    mount_point = options.mount
+    mount_dir = None
+    if not mount_point:
+        mount_dir = tempfile.TemporaryDirectory()
+        mount_point = mount_dir.name
+
+    mount_point = os.path.abspath(mount_point)
+
     api = JoplinApi(options.token)
-    bridge = JoplinBridge(api)
+    bridge = JoplinBridge(api, mount_point)
     fs = JoplinFS(api, bridge)
     fuse_options = set(pyfuse3.default_options)
     fuse_options.add('fsname=joplinfs')
     if options.debug_fuse:
         fuse_options.add('debug')
-    pyfuse3.init(fs, options.mount, fuse_options)
+    pyfuse3.init(fs, mount_point, fuse_options)
     try:
         trio.run(main, bridge)
     finally:
         pyfuse3.close()
-
-
+        if mount_dir is not None:
+            mount_dir.cleanup()
 
