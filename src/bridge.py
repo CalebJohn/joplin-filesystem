@@ -169,6 +169,11 @@ class JoplinBridge:
             fields.append('body')
         note = await self.api.get(f"/notes/{id}", params={'fields': fields})
         return note
+    async def _get_note_body(self, meta: JoplinMeta) -> str:
+        data = await self.api.get(meta.url, meta.params)
+        # TODO: Localize links
+
+        return data['body']
 
 
     def get_inode(self, meta: JoplinMeta) -> Inode:
@@ -194,6 +199,14 @@ class JoplinBridge:
         if meta is None:
             raise pyfuse3.FUSEError(errno.ENOENT)
         return meta
+
+    async def read(self, inode: Inode, offset: int, size: int) -> bytes:
+        meta = await self.get_meta(inode)
+        if meta.type not in [ItemType.note, ItemType.resource]:
+            raise pyfuse3.FUSEError(errno.ENOENT)
+
+        body = await self._get_note_body(meta)
+        return bytes(body[offset:offset+size], 'utf-8') # type: ignore
 
     async def _construct_map(self):
         """

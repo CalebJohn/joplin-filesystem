@@ -106,11 +106,7 @@ class JoplinFS(pyfuse3.Operations):
         log.info(f"Reading inode {inode}")
         if inode == pyfuse3.ROOT_INODE:
             raise pyfuse3.FUSEError(errno.ENOENT)
-        meta = await self._inode_map.get_meta(inode)
-        if meta.type not in [ItemType.note, ItemType.resource]:
-            raise pyfuse3.FUSEError(errno.ENOENT)
-        data = await self.api.get(meta.url, meta.params)
-        return bytes(data['body'][offset:offset+size], 'utf-8') # type: ignore
+        return await self._inode_map.read(inode, offset, size)
 
 
 if __name__ == "__main__":
