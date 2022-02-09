@@ -5,6 +5,7 @@ import logging
 import trio
 from typing import Dict, List, Union
 
+logging.basicConfig(format='%(levelname)s: %(message)s')
 log = logging.getLogger(__name__)
 
 
@@ -30,7 +31,7 @@ class JoplinApi:
     async def get_session(self):
         """
         We want to initialize the session inside the event loop.
-        This means we must wait until the 
+        This means we must wait until after JoplinFS has been mounted
         """
         # This is not perfect because we'll always be touching the lock, but it spends such
         # a short amount of time in the lock, it shouldn't matter
@@ -75,8 +76,10 @@ class JoplinApi:
         while has_more:
             pams = {**{"page": page}, **params}
             resp = await session.get(url, params=pams)
+            log.info(resp)
             if resp.status_code == 200:
                 j = resp.json()
+                log.debug(j)
                 itms = j.get("items", None)
                 # This is not a paginated property
                 if itms is None:
@@ -91,7 +94,24 @@ class JoplinApi:
 
         return items
 
+    async def get_cursor(self) -> int:
+        session = await self.get_session()
+
+        resp = await session.get("/events")
+        log.debug(resp)
+
+        if resp.status_code == 200:
+            j = resp.json()
+
+            if 'cursor' in j:
+                return int(j['cursor'])
+
+        return 0
+
     async def put(self, url: str, body: Dict):
+        """
+        Wrapper around session.put
+        """
         session = await self.get_session()
         data = None
         resp = await session.put(url,
