@@ -60,34 +60,6 @@ class JoplinMeta:
     parent: Inode = 0
 
     @property
-    def url(self):
-        if self.type == ItemType.folder:
-            return f"folders/{self.id}"
-        elif self.type == ItemType.note:
-            return f"notes/{self.id}"
-        elif self.type == ItemType.resource:
-            return f"resources/{self.id}"
-        elif self.type == ItemType.tag:
-            return f"tags/{self.id}"
-
-        # To satisfy the type checker
-        return ''
-
-    @property
-    def params(self):
-        if self.type == ItemType.folder:
-            return {'fields': ['id', 'parent_id', 'title', 'user_updated_time', 'user_created_time']}
-        elif self.type == ItemType.note:
-            return {'fields': ['id', 'parent_id', 'title', 'body', 'user_updated_time', 'user_created_time']}
-        elif self.type == ItemType.resource:
-            return {'fields': ['id', 'size' 'title', 'user_updated_time', 'user_created_time']}
-        elif self.type == ItemType.tag:
-            return {'fields': ['id', 'title', 'user_updated_time', 'user_created_time']}
-
-        # To satisfy the type checker
-        return {}
-
-    @property
     def mode(self):
         if self.type == ItemType.folder or self.type == ItemType.tag:
             return stat.S_IFDIR | 0o755
@@ -179,12 +151,6 @@ class JoplinBridge:
             fields.append('body')
         note = await self.api.get(f"/notes/{id}", params={'fields': fields})
         return note
-    async def _get_note_body(self, meta: JoplinMeta) -> str:
-        data = await self.api.get(meta.url, meta.params)
-        # localized = re.sub(joplin_internal_link_regex, self._mount_substitution, data['body'])
-        localized = data['body']
-        return localized
-
 
     def get_inode(self, meta: JoplinMeta) -> Inode:
         """
@@ -218,7 +184,8 @@ class JoplinBridge:
         if meta.type != ItemType.note:
             raise pyfuse3.FUSEError(errno.ENOENT)
 
-        body = await self._get_note_body(meta)
+        note = await self._get_note(meta.id, body=True)
+        body = re.sub(joplin_internal_link_regex, self._mount_substitution, note['body'])
         offset = min(len(body), offset)
         extent = min(len(body), offset+size)
         meta.byte_size = len(body)
