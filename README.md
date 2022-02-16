@@ -2,16 +2,30 @@
 
 A Proof-Of-Concept FUSE filesytem that gives access to your Joplin notes.
 
-Currently the Joplin Filesystem is readonly, but hopefully that will change in the next few days.
+Currently the Joplin Filesystem is readonly, but that will eventually change if there is interest.
 
 ## Overview
 This is a simple system that takes advantage of the hierarchical layout of notebooks in Joplin. Essentially it's a translation layer between the filesystem primitives and the Joplin API. 
 
+### Layout
+```
+$ tree <mount_folder>
+.
+├── .links
+|   ├── <...>
+├── .tags
+|   ├── <...>
+└── <folders>
+```
+
+The `.links` directory is a helper folder to make linking easy. It contains a symlink (named by id) to every note and resource. This makes it easy to take a Joplin link `[title](:/f9a1ba9631c346efa7ca1eb1d38dd64f)` and turn it into `[title](/path/to/mount/.links/f9a1ba9631c346efa7ca1eb1d38dd64f)`.
+
+The `.tags` folder holds all the tags as subfolders. Each tag subfolder contains a symlink to a note that has that tag.
+
+The `<folders>` are just all the top level folders in Joplin. They represent the notebook/note structure of Joplin.
+
+
 ## TODO
-- [ ] Cache Joplin API calls
-  - The current implementation doesn't do any sort of caching and as a result can end up hitting the Joplin API many times in a row looking for the same content
-- [ ] Add Tags and Resource directories
-- [ ] Translate links to be localized when opening notes
 - [ ] Support writing to notes
 
 ## Limitations
