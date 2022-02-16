@@ -70,7 +70,7 @@ class JoplinFS(pyfuse3.Operations):
         for inode in children:
             m = await self._bridge.get_meta(inode)
             n = m.safe_filename
-            if parent_meta.type != ItemType.folder:
+            if parent_meta.type == ItemType.virtual:
                 n = bytes(m.id, 'utf-8')
             if n == name:
                 # In this case we want to return the original file, not the symlink
@@ -100,8 +100,9 @@ class JoplinFS(pyfuse3.Operations):
             name = m.safe_filename
             attr = await self._getattr(m, inode)
             if meta.type != ItemType.folder:
-                name = bytes(m.id, 'utf-8')
                 attr.st_mode = m.sym_mode
+            if meta.type == ItemType.virtual:
+                name = bytes(m.id, 'utf-8')
             if not pyfuse3.readdir_reply(token, name, attr, inode):
                 break
 
