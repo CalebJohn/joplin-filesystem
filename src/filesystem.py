@@ -30,7 +30,7 @@ Inode = int
 class JoplinFS(pyfuse3.Operations):
     def __init__(self, api: JoplinApi, bridge: JoplinBridge):
         super().__init__()
-        self._inode_map = bridge
+        self._bridge = bridge
         self.api = api
 
     async def _getattr(self, meta: JoplinMeta, inode: Inode):
@@ -58,17 +58,17 @@ class JoplinFS(pyfuse3.Operations):
             entry.st_mode = (stat.S_IFDIR | 0o755)
             entry.st_size = 4096
             return entry
-        meta = await self._inode_map.get_meta(inode)
+        meta = await self._bridge.get_meta(inode)
 
         return await self._getattr(meta, inode)
 
     async def lookup(self, parent_inode, name, ctx=None):
         log.info(f"Lookup parent_inode {parent_inode}, {name}")
-        parent_meta = await self._inode_map.get_meta(parent_inode)
+        parent_meta = await self._bridge.get_meta(parent_inode)
 
-        children = await self._inode_map.get_children(parent_meta)
+        children = await self._bridge.get_children(parent_meta)
         for inode in children:
-            m = await self._inode_map.get_meta(inode)
+            m = await self._bridge.get_meta(inode)
             n = m.safe_filename
             if parent_meta.type != ItemType.folder:
                 n = bytes(m.id, 'utf-8')
@@ -82,7 +82,7 @@ class JoplinFS(pyfuse3.Operations):
         log.info(f"Open dir inode {inode}")
         if inode == pyfuse3.ROOT_INODE:
             return inode
-        meta = await self._inode_map.get_meta(inode)
+        meta = await self._bridge.get_meta(inode)
         if meta.type not in [ItemType.folder, ItemType.tag, ItemType.virtual]:
             raise pyfuse3.FUSEError(errno.ENOTDIR)
         return inode
@@ -90,13 +90,13 @@ class JoplinFS(pyfuse3.Operations):
     async def readdir(self, inode: Inode, start_id: Inode, token):
         log.info(f"Readdir inode {inode}, {start_id} {token}")
         # TODO: Add tags folder and resource folder
-        meta = await self._inode_map.get_meta(inode)
+        meta = await self._bridge.get_meta(inode)
 
-        children = await self._inode_map.get_children(meta)
+        children = await self._bridge.get_children(meta)
         for inode in children:
             if inode <= start_id:
                 continue
-            m = await self._inode_map.get_meta(inode)
+            m = await self._bridge.get_meta(inode)
             name = m.safe_filename
             attr = await self._getattr(m, inode)
             if meta.type != ItemType.folder:
@@ -117,13 +117,13 @@ class JoplinFS(pyfuse3.Operations):
         log.info(f"Reading inode {inode}")
         if inode == pyfuse3.ROOT_INODE:
             raise pyfuse3.FUSEError(errno.ENOENT)
-        return await self._inode_map.read(inode, offset, size)
+        return await self._bridge.read(inode, offset, size)
 
     async def readlink(self, inode: Inode, ctx):
-        m = await self._inode_map.get_meta(inode)
+        m = await self._bridge.get_meta(inode)
         path = [m.safe_filename]
         while m.parent > 0:
-            m = await self._inode_map.get_meta(m.parent)
+            m = await self._bridge.get_meta(m.parent)
             path.append(m.safe_filename)
         return os.path.join(*reversed(path))
 
