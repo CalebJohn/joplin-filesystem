@@ -37,6 +37,7 @@ class ItemType(Enum):
     migration = 14
     smart_filter = 15
     command = 16
+    virtual = 99
 
 
 class EventType(Enum):
@@ -61,7 +62,7 @@ class JoplinMeta:
 
     @property
     def mode(self):
-        if self.type == ItemType.folder or self.type == ItemType.tag:
+        if self.type in [ItemType.folder, ItemType.tag, ItemType.virtual]:
             return stat.S_IFDIR | 0o755
         elif self.type == ItemType.note:
             return stat.S_IFREG | 0o644
@@ -72,8 +73,14 @@ class JoplinMeta:
         return 0
 
     @property
+    def sym_mode(self):
+        return (stat.S_IFLNK | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR |
+                stat.S_IRGRP | stat.S_IWGRP | stat.S_IXGRP |
+                stat.S_IROTH | stat.S_IWOTH | stat.S_IXOTH)
+
+    @property
     def size(self) -> int:
-        if self.type == ItemType.folder:
+        if self.type in [ItemType.folder, ItemType.tag, ItemType.virtual]:
             return 4096
         elif self.type == ItemType.note:
             return self.byte_size if self.byte_size else 1024
@@ -113,16 +120,16 @@ class JoplinBridge:
                 self._current_inode: JoplinMeta(id='', type=ItemType.folder, title='rootfs', updated=0, created=0)
         }
         self.api = api
-        self._mount_substitution = f"{mount}/links/\\1"
+        self._mount_substitution = f"file://{mount}/.links/\\1"
         self._tree = {}
         self._update_cursor = None
         self.update_check_period = 3 #s
         trio.run(self._construct_map)
 
-    async def _get_folders(self, parent_id: str):
+    async def _get_folders(self, parent_id: str = ""):
         folders = await self.api.get("/folders", params={'fields': ['id', 'parent_id', 'title', 'user_updated_time', 'user_created_time']})
         return [JoplinMeta(id=f['id'], type=ItemType.folder, updated=f['user_updated_time'], created=f['user_created_time'], title=f['title'])
-                for f in folders if f["parent_id"] == parent_id]
+                for f in folders if not parent_id or f["parent_id"] == parent_id]
     async def _get_notes(self, parent_id: str):
         notes = await self.api.get(f"/folders/{parent_id}/notes", params={'fields': ['id', 'body', 'title', 'user_updated_time', 'user_created_time']})
         return [JoplinMeta(id=n['id'], type=ItemType.note, updated=n['user_updated_time'], created=n['user_created_time'], title=n['title']) for n in notes]
@@ -135,6 +142,9 @@ class JoplinBridge:
         tags = await self.api.get(f"/tags", params={'fields': ['id', 'title', 'user_updated_time', 'user_created_time']})
         return [JoplinMeta(id=t['id'], type=ItemType.tag, updated=t['user_updated_time'], created=t['user_created_time'], title=t['title'])
                 for t in tags]
+    async def _get_tag_notes(self, id: str):
+        tags = await self.api.get(f"/tags/{id}/notes", params={'fields': ['id']})
+        return [tag['id'] for tag in tags]
     async def _get_events(self):
         if self._update_cursor is None:
             self._update_cursor = await self.api.get_cursor()
@@ -196,7 +206,7 @@ class JoplinBridge:
         Builds an internal representation of the folder/note tree
         """
         root = self._map_inode[pyfuse3.ROOT_INODE]
-        folders = await self._get_folders("")
+        folders = await self._get_folders()
 
         for f in folders:
             # Ensure there is an inode for this folder (ignore the result)
@@ -207,6 +217,22 @@ class JoplinBridge:
             for i in notes + sub_folders:
                 f.children.append(self.get_inode(i))
                 i.parent = f_inode
+
+        ## Virtual Folders
+        # LINKS
+        # This is where we'll be keeping every single Joplin item, keyed by id
+        # This is a conveniant place to link to
+        links_folder = JoplinMeta(id='001', type=ItemType.virtual, title=".links", created=0, updated=0, parent=pyfuse3.ROOT_INODE)
+        links_inode = self.get_inode(links_folder)
+        root.children.append(links_inode)
+        # Tags
+        tags_folder = JoplinMeta(id='002', type=ItemType.folder, title=".tags", created=0, updated=0, parent=pyfuse3.ROOT_INODE)
+        tags_inode = self.get_inode(tags_folder)
+        root.children.append(tags_inode)
+        tags = await self._get_tags()
+        for t in tags:
+            t_inode = self.get_inode(t)
+            tags_folder.children.append(t_inode)
 
     async def check_for_update(self):
         """
@@ -287,6 +313,16 @@ class JoplinBridge:
                 if new_parent_meta is None: return
                 new_parent_meta.children.append(inode)
                 safe_invalidate_inode(new_parent_inode)
+
+    async def get_children(self, meta: JoplinMeta):
+        children = meta.children
+        if meta.type == ItemType.virtual:
+            children = [inode for inode in self._inode_map.values() if inode != pyfuse3.ROOT_INODE]
+        elif meta.type == ItemType.tag:
+            notes = await self._get_tag_notes(meta.id)
+            children = [self._inode_map[id] for id in notes]
+
+        return sorted(children)
 
 
 def safe_invalidate_inode(inode: Inode):

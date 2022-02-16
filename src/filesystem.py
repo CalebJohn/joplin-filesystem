@@ -21,7 +21,7 @@ else:
 
 logging.basicConfig(format='%(levelname)s: %(message)s')
 log = logging.getLogger(__name__)
-# log.setLevel(logging.DEBUG)
+# log.setLevel(logging.INFO)
 
 # Type def for Inode
 Inode = int
@@ -66,9 +66,14 @@ class JoplinFS(pyfuse3.Operations):
         log.info(f"Lookup parent_inode {parent_inode}, {name}")
         parent_meta = await self._inode_map.get_meta(parent_inode)
 
-        for inode in parent_meta.children:
+        children = await self._inode_map.get_children(parent_meta)
+        for inode in children:
             m = await self._inode_map.get_meta(inode)
-            if m.safe_filename == name:
+            n = m.safe_filename
+            if parent_meta.type != ItemType.folder:
+                n = bytes(m.id, 'utf-8')
+            if n == name:
+                # In this case we want to return the original file, not the symlink
                 return await self._getattr(m, inode)
 
         raise pyfuse3.FUSEError(errno.ENOENT)
@@ -78,7 +83,7 @@ class JoplinFS(pyfuse3.Operations):
         if inode == pyfuse3.ROOT_INODE:
             return inode
         meta = await self._inode_map.get_meta(inode)
-        if meta.type != ItemType.folder:
+        if meta.type not in [ItemType.folder, ItemType.tag, ItemType.virtual]:
             raise pyfuse3.FUSEError(errno.ENOTDIR)
         return inode
 
@@ -87,11 +92,17 @@ class JoplinFS(pyfuse3.Operations):
         # TODO: Add tags folder and resource folder
         meta = await self._inode_map.get_meta(inode)
 
-        for inode in meta.children:
+        children = await self._inode_map.get_children(meta)
+        for inode in children:
             if inode <= start_id:
                 continue
             m = await self._inode_map.get_meta(inode)
-            if not pyfuse3.readdir_reply(token, m.safe_filename, await self._getattr(m, inode), inode):
+            name = m.safe_filename
+            attr = await self._getattr(m, inode)
+            if meta.type != ItemType.folder:
+                name = bytes(m.id, 'utf-8')
+                attr.st_mode = m.sym_mode
+            if not pyfuse3.readdir_reply(token, name, attr, inode):
                 break
 
     async def open(self, inode, flags, ctx):
@@ -107,6 +118,14 @@ class JoplinFS(pyfuse3.Operations):
         if inode == pyfuse3.ROOT_INODE:
             raise pyfuse3.FUSEError(errno.ENOENT)
         return await self._inode_map.read(inode, offset, size)
+
+    async def readlink(self, inode: Inode, ctx):
+        m = await self._inode_map.get_meta(inode)
+        path = [m.safe_filename]
+        while m.parent > 0:
+            m = await self._inode_map.get_meta(m.parent)
+            path.append(m.safe_filename)
+        return os.path.join(*reversed(path))
 
 
 if __name__ == "__main__":
