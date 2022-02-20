@@ -63,7 +63,7 @@ class JoplinApi:
                 log.warning(f"Incorrect token {self.token}")
                 exit(1)
 
-    async def get(self, url: str, params: Dict) -> Union[Dict, List]:
+    async def get(self, url: str, params: Dict, raw: bool = False) -> Union[Dict, List, bytes]:
         """
         Wrapper around session.get that can handle Joplin pagination. Always grabs all pages.
         """
@@ -78,6 +78,9 @@ class JoplinApi:
             resp = await session.get(url, params=pams)
             log.info(resp)
             if resp.status_code == 200:
+                if raw:
+                    items = resp.content
+                    break
                 j = resp.json()
                 log.debug(j)
                 itms = j.get("items", None)

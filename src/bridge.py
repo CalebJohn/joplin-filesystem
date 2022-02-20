@@ -61,6 +61,34 @@ class JoplinMeta:
     parent: Inode = 0
 
     @property
+    def url(self):
+        if self.type == ItemType.folder:
+            return f"folders/{self.id}"
+        elif self.type == ItemType.note:
+            return f"notes/{self.id}"
+        elif self.type == ItemType.resource:
+            return f"resources/{self.id}/file"
+        elif self.type == ItemType.tag:
+            return f"tags/{self.id}"
+
+        # To satisfy the type checker
+        return ''
+
+    @property
+    def params(self):
+        if self.type == ItemType.folder:
+            return {'fields': ['id', 'parent_id', 'title', 'user_updated_time', 'user_created_time']}
+        elif self.type == ItemType.note:
+            return {'fields': ['id', 'parent_id', 'title', 'body', 'user_updated_time', 'user_created_time']}
+        elif self.type == ItemType.resource:
+            return {'fields': ['id', 'size' 'title', 'user_updated_time', 'user_created_time']}
+        elif self.type == ItemType.tag:
+            return {'fields': ['id', 'title', 'user_updated_time', 'user_created_time']}
+
+        # To satisfy the type checker
+        return {}
+
+    @property
     def mode(self):
         if self.type in [ItemType.folder, ItemType.tag, ItemType.virtual]:
             return stat.S_IFDIR | 0o755
@@ -191,15 +219,19 @@ class JoplinBridge:
         Loads the body of a specific note, and returns it trimmed to the offset and size
         """
         meta = await self.get_meta(inode)
-        if meta.type != ItemType.note:
+        if meta.type not in [ItemType.note, ItemType.resource]:
             raise pyfuse3.FUSEError(errno.ENOENT)
 
-        note = await self._get_note(meta.id, body=True)
-        body = re.sub(joplin_internal_link_regex, self._mount_substitution, note['body'])
+        body = await self.api.get(meta.url, meta.params, raw=meta.type == ItemType.resource)
+        if meta.type == ItemType.note:
+            body = re.sub(joplin_internal_link_regex, self._mount_substitution, body['body']) # type: ignore
         offset = min(len(body), offset)
         extent = min(len(body), offset+size)
         meta.byte_size = len(body)
-        return bytes(body[offset:extent], 'utf-8') # type: ignore
+        if meta.type == ItemType.note:
+            return bytes(body[offset:extent], 'utf-8') # type: ignore
+        else:
+            return body[offset:extent]
 
     async def _construct_map(self):
         """
@@ -217,6 +249,13 @@ class JoplinBridge:
             for i in notes + sub_folders:
                 f.children.append(self.get_inode(i))
                 i.parent = f_inode
+
+        ## Resources
+        # resources = await self._get_resources()
+        # for r in resources:
+        #     # We just want to store references to these resources, they'll be picked up by the
+        #     # .links folder later
+        #     self.get_inode(r)
 
         ## Virtual Folders
         # LINKS
