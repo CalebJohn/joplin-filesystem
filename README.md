@@ -5,7 +5,9 @@ A Proof-Of-Concept FUSE filesytem that gives access to your Joplin notes.
 Currently the Joplin Filesystem is readonly, but that will eventually change if there is interest.
 
 ## Overview
-This is a simple system that takes advantage of the hierarchical layout of notebooks in Joplin. Essentially it's a translation layer between the filesystem primitives and the Joplin API. 
+This is a simple system that takes advantage of the hierarchical layout of notebooks in Joplin. Essentially it's a translation layer between the filesystem primitives and the Joplin API. Put simply, this allows you to select a folder on your computer and access all of your Joplin notes/notebooks as if they were stored in that folder. 
+
+(Only tested on Ubuntu 20.04 with Python 3.7)
 
 ### Layout
 ```
@@ -20,14 +22,14 @@ $ tree <mount_folder>
 
 The `.links` directory is a helper folder to make linking easy. It contains a symlink (named by id) to every note and resource. This makes it easy to take a Joplin link `[title](:/f9a1ba9631c346efa7ca1eb1d38dd64f)` and turn it into `[title](/path/to/mount/.links/f9a1ba9631c346efa7ca1eb1d38dd64f)`.
 
-The `.tags` folder holds all the tags as subfolders. Each tag subfolder contains symlinks to the notes that have that tag.
+The `.tags` folder holds all the tags as subfolders. Each tag subfolder contains symlinks all notes with that tag.
 
 The `<folders>` are just all the top level folders in Joplin. They represent the notebook/note structure of Joplin.
 
 ## Usage
 Ensure you have a valid python installation (tested on python 3.7, but should work up to 3.9).
 
-Install dependencies, either
+Install dependencies, either:
 
 ```
 poetry install
@@ -37,7 +39,7 @@ or
 pip install -r requirements.txt
 ```
 
-For testing run with
+For testing, run with:
 
 ```
 python src/filesystem.py --mount <mount folder> --token <joplin webclipper token>
@@ -45,6 +47,7 @@ python src/filesystem.py --mount <mount folder> --token <joplin webclipper token
 
 `mount` and `token` can alternatively be specified with the environment variable `JOPLINFS_MOUNT` and `JOPLINFS_TOKEN`.
 
+That's it! Now you'll have (read-only) access to all your Joplin notes from `<mount folder>`.
 
 
 ## TODO
