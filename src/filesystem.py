@@ -58,19 +58,19 @@ class JoplinFS(pyfuse3.Operations):
             entry.st_mode = (stat.S_IFDIR | 0o755)
             entry.st_size = 4096
             return entry
-        meta = await self._bridge.get_meta(inode)
+        meta = self._bridge.get_meta(inode)
 
         return await self._getattr(meta, inode)
 
     async def lookup(self, parent_inode, name, ctx=None):
         log.info(f"Lookup parent_inode {parent_inode}, {name}")
-        parent_meta = await self._bridge.get_meta(parent_inode)
+        parent_meta = self._bridge.get_meta(parent_inode)
 
         children = await self._bridge.get_children(parent_meta)
         for inode in children:
-            m = await self._bridge.get_meta(inode)
+            m = self._bridge.get_meta(inode)
             n = m.safe_filename
-            if parent_meta.type == ItemType.virtual:
+            if parent_meta.type == ItemType.virtual and parent_meta.id == "links":
                 n = bytes(m.id, 'utf-8')
             if n == name:
                 # In this case we want to return the original file, not the symlink
@@ -82,26 +82,25 @@ class JoplinFS(pyfuse3.Operations):
         log.info(f"Open dir inode {inode}")
         if inode == pyfuse3.ROOT_INODE:
             return inode
-        meta = await self._bridge.get_meta(inode)
+        meta = self._bridge.get_meta(inode)
         if meta.type not in [ItemType.folder, ItemType.tag, ItemType.virtual]:
             raise pyfuse3.FUSEError(errno.ENOTDIR)
         return inode
 
     async def readdir(self, inode: Inode, start_id: Inode, token):
         log.info(f"Readdir inode {inode}, {start_id} {token}")
-        # TODO: Add tags folder and resource folder
-        meta = await self._bridge.get_meta(inode)
+        meta = self._bridge.get_meta(inode)
 
         children = await self._bridge.get_children(meta)
         for inode in children:
             if inode <= start_id:
                 continue
-            m = await self._bridge.get_meta(inode)
+            m = self._bridge.get_meta(inode)
             name = m.safe_filename
             attr = await self._getattr(m, inode)
             if meta.type != ItemType.folder:
                 attr.st_mode = m.sym_mode
-            if meta.type == ItemType.virtual:
+            if meta.type == ItemType.virtual and meta.id == "links":
                 name = bytes(m.id, 'utf-8')
             if not pyfuse3.readdir_reply(token, name, attr, inode):
                 break
@@ -121,10 +120,10 @@ class JoplinFS(pyfuse3.Operations):
         return await self._bridge.read(inode, offset, size)
 
     async def readlink(self, inode: Inode, ctx):
-        m = await self._bridge.get_meta(inode)
+        m = self._bridge.get_meta(inode)
         path = [m.safe_filename]
         while m.parent > 0:
-            m = await self._bridge.get_meta(m.parent)
+            m = self._bridge.get_meta(m.parent)
             path.append(m.safe_filename)
         return os.path.join(*reversed(path))
 
