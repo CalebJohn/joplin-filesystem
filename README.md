@@ -45,7 +45,9 @@ For testing, run with:
 python src/filesystem.py --mount <mount folder> --token <joplin webclipper token>
 ```
 
-`mount` and `token` can alternatively be specified with the environment variable `JOPLINFS_MOUNT` and `JOPLINFS_TOKEN`.
+There are also optional --host and --port options, but the defaults should work for most people.
+
+All options can alternatively be specified with environment variables eg. `JOPLINFS_MOUNT` and `JOPLINFS_TOKEN`.
 
 That's it! Now you'll have (read-only) access to all your Joplin notes from `<mount folder>`.
 

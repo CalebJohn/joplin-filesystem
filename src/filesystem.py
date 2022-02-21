@@ -139,6 +139,10 @@ if __name__ == "__main__":
                         help='Mountpoint for JoplinFS')
     parser.add_argument('--token', type=str, default=os.environ.get("JOPLINFS_TOKEN"),
                         help='The Joplin webclipper token')
+    parser.add_argument('--host', type=str, default=os.environ.get("JOPLINFS_HOST", "http://127.0.0.1"),
+                        help='The Joplin webclipper host')
+    parser.add_argument('--port', type=int, default=os.environ.get("JOPLINFS_PORT", 41184),
+                        help='The Joplin webclipper port')
     parser.add_argument('--debug-fuse', action='store_true', default=False,
                         help='Enable FUSE debugging output')
     options = parser.parse_args()
@@ -151,7 +155,7 @@ if __name__ == "__main__":
 
     mount_point = os.path.abspath(mount_point)
 
-    api = JoplinApi(options.token)
+    api = JoplinApi(options.token, options.host, options.port)
     bridge = JoplinBridge(api, mount_point)
     fs = JoplinFS(api, bridge)
     fuse_options = set(pyfuse3.default_options)

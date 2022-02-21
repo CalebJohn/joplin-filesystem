@@ -13,9 +13,9 @@ class JoplinApi:
     ports_to_scan = 12
     timeout = 5
 
-    def __init__(self, token):
-        self.host = "http://127.0.0.1"
-        self.port = 41184
+    def __init__(self, token, host, port):
+        self.host = host
+        self.port = port
         self.token = token
         self.params = {'token': self.token}
         self.json_headers = {'Content-Type': 'application/json'}
