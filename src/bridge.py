@@ -129,10 +129,13 @@ class JoplinBridge:
         self.update_check_period = 3 #s
         trio.run(self._construct_map)
 
-    async def _get_folders(self, parent_id: str = ""):
+    async def _get_all_folders(self) -> list:
         folders = await self.api.get("/folders", params={'fields': ['id', 'parent_id', 'title', 'user_updated_time', 'user_created_time']})
-        return [(JoplinMeta(id=f['id'], type=ItemType.folder, updated=f['user_updated_time'], created=f['user_created_time'], title=f['title']), f["parent_id"])
-                for f in folders if not parent_id or f["parent_id"] == parent_id]
+        return folders
+    async def _get_folders(self, parent_id: str):
+        folders = await self._get_all_folders()
+        return [JoplinMeta(id=f['id'], type=ItemType.folder, updated=f['user_updated_time'], created=f['user_created_time'], title=f['title'])
+                for f in folders if f["parent_id"] == parent_id]
     async def _get_notes(self, parent_id: str):
         notes = await self.api.get(f"/folders/{parent_id}/notes", params={'fields': ['id', 'body', 'title', 'user_updated_time', 'user_created_time']})
         return [JoplinMeta(id=n['id'], type=ItemType.note, updated=n['user_updated_time'], created=n['user_created_time'], title=n['title']) for n in notes]
@@ -220,20 +223,17 @@ class JoplinBridge:
         Builds an internal representation of the folder/note tree
         """
         root = self._map_inode[pyfuse3.ROOT_INODE]
-        folders = await self._get_folders()
+        folders = await self._get_all_folders()
 
-        for f, parent in folders:
+        for f in folders:
+            meta = JoplinMeta(id=f['id'], type=ItemType.folder, updated=f['user_updated_time'], created=f['user_created_time'], title=f['title'])
             # Ensure there is an inode for this folder (ignore the result)
-            f_inode = self.get_inode(f)
+            f_inode = self.get_inode(meta)
             # Ensure we are using the cached meta
-            f = self.get_meta(f_inode)
-            if not parent:
-                root.children.append(f_inode)
-                f.parent = pyfuse3.ROOT_INODE
-            notes = await self._get_notes(f.id)
-            sub_folders = [f[0] for f in await self._get_folders(f.id)]
-            for i in notes + sub_folders:
-                f.children.append(self.get_inode(i))
+            meta = self.get_meta(f_inode)
+            notes = await self._get_notes(meta.id)
+            for i in notes:
+                meta.children.append(self.get_inode(i))
                 i.parent = f_inode
 
         ## Resources
@@ -272,7 +272,9 @@ class JoplinBridge:
             await trio.sleep(self.update_check_period)
 
     async def _apply_event(self, event):
-        if event['item_type'] not in (ItemType.note.value, ItemType.folder.value):
+        if event['item_type'] != ItemType.note.value:
+            # Only notes are supported by /event
+            # https://github.com/laurent22/joplin/blob/dev/readme/api/references/rest_api.md#events
             return
 
         inode = self._inode_map.get(event['item_id'], None)
@@ -295,11 +297,7 @@ class JoplinBridge:
                 del self._map_inode[inode]
 
         else:
-            item = {}
-            if event['item_type'] == ItemType.note.value:
-                item = await self._get_note(event['item_id'])
-            elif event['item_type'] == ItemType.folder.value:
-                item = await self._get_folder(event['item_id'])
+            item = await self._get_note(event['item_id'])
 
             if inode is not None and event['type'] == EventType.updated.value:
                 meta = self._map_inode.get(inode, None)
@@ -354,6 +352,12 @@ class JoplinBridge:
         elif meta.type == ItemType.tag:
             notes = await self._get_tag_notes(meta.id)
             children = [self._inode_map[id] for id in notes]
+        elif meta.type == ItemType.folder:
+            # Notebooks are added on the fly because the internal representation can't be
+            # updated by the events endpoint (tags have the same issue)
+            sub_folders = [f for f in await self._get_folders(meta.id)]
+            for i in sub_folders:
+                children.append(self.get_inode(i))
 
         return sorted(children)
 
