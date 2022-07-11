@@ -1,0 +1,14 @@
+version: '3'
+
+services:
+  joplinfs:
+    build: .
+    env_file:
+      - .env
+    volumes:
+      - /mnt/joplin:/mnt:shared
+    cap_add:
+      - SYS_ADMIN
+    devices:
+      - /dev/fuse
+    network_mode: host
